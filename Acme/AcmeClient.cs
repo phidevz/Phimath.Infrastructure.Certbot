@@ -20,13 +20,6 @@ namespace Phimath.Infrastructure.Certbot.Acme
         private readonly ILogger<AcmeClient> _logger;
         private readonly HttpClient _acmeBaseClient;
 
-        private static class StateFiles
-        {
-            public const string ServiceDirectory = "00-ServiceDirectory.json";
-            public const string AccountDetails = "10-AccountDetails.json";
-            public const string AccountKey = "15-AccountKey.json";
-        }
-
         private AcmeClient(AcmeConfiguration configuration, ILogger<AcmeClient> logger, HttpClient acmeBaseClient)
         {
             _configuration = configuration;
@@ -48,29 +41,23 @@ namespace Phimath.Infrastructure.Certbot.Acme
 
             var acmeBaseClient = new HttpClient()
             {
-                BaseAddress = 
-            }
+                BaseAddress = configuration.UseStaging
+                    ? new Uri("https://acme-staging-v02.api.letsencrypt.org/")
+                    : new Uri("https://acme-v02.api.letsencrypt.org/"),
+            };
+
+            var accountDetails = await LocalAccountDetails.LoadOrCreateAsync(configuration.StateDirectory, lf);
+            var accountKey = await LocalAccountKey.LoadOrCreateAsync(configuration.StateDirectory, lf);
             
-            var acme = new AcmeProtocolClient();
+            var acme = new AcmeProtocolClient(acmeBaseClient,accountDetails);
+            
             var serviceDirectory = await LocalServiceDirectory.LoadOrCreateAsync(
                 configuration.StateDirectory,
                 false,
                 lf,
                 acme);
 
-            var accountDetailsFile = Path.Join(configuration.StateDirectory, StateFiles.AccountDetails);
-            AccountDetails? accountDetails;
-            if (File.Exists(accountDetailsFile))
-            {
-                logger.LogInformation("Loading existing account details");
-                accountDetails =
-                    JsonConvert.DeserializeObject<AccountDetails>(File.ReadAllText(accountDetailsFile))!;
-                logger.LogInformation("Existing account hast KID {0}", accountDetails.Kid);
-            }
-            else
-            {
-                accountDetails = null;
-            }
+            await acme.GetNonceAsync();
 
             return new AcmeClient(configuration, logger, acmeBaseClient);
         }

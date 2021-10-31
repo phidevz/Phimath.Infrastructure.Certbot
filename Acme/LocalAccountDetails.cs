@@ -13,56 +13,45 @@ namespace Phimath.Infrastructure.Certbot.Acme
 {
     public class LocalAccountDetails
     {
-        private readonly string _serviceDirectoryFile;
-        private readonly ServiceDirectory _serviceDirectory;
+        private readonly string _accountDetailsFile;
+        private readonly AccountDetails? _accountDetails;
         private readonly ILogger<LocalAccountDetails> _logger;
 
-        private LocalAccountDetails(string serviceDirectoryFile, ServiceDirectory serviceDirectory,
+        private LocalAccountDetails(string accountDetailsFile,
+            AccountDetails? accountDetails,
             ILogger<LocalAccountDetails> logger)
         {
-            _serviceDirectoryFile = serviceDirectoryFile;
-            _serviceDirectory = serviceDirectory;
+            _accountDetailsFile = accountDetailsFile;
+            _accountDetails = accountDetails;
             _logger = logger;
         }
 
         public async Task SaveAsync()
         {
-            await File.WriteAllTextAsync(_serviceDirectoryFile, JsonConvert.SerializeObject(_serviceDirectory));
+            await File.WriteAllTextAsync(_accountDetailsFile, JsonConvert.SerializeObject(_accountDetails));
         }
 
         public static async Task<LocalAccountDetails> LoadOrCreateAsync(string stateDirectory,
-            bool refreshServiceDirectory, ILoggerFactory lf, AcmeProtocolClient acme)
+            ILoggerFactory lf)
         {
             var logger = lf.CreateLogger<LocalAccountDetails>();
 
-            var serviceDirectoryFile = Path.Join(stateDirectory, "00-ServiceDirectory.json");
+            var accountDetailsFile = Path.Join(stateDirectory, "10-AccountDetails.json");
 
-            bool shallSave = false;
-
-            ServiceDirectory serviceDirectory;
-            if (File.Exists(serviceDirectoryFile) && !refreshServiceDirectory)
+            AccountDetails? accountDetails;
+            if (File.Exists(accountDetailsFile))
             {
-                logger.LogInformation("Loading existing service directory");
-                serviceDirectory =
-                    JsonConvert.DeserializeObject<ServiceDirectory>(await File.ReadAllTextAsync(serviceDirectoryFile))!;
+                logger.LogInformation("Loading existing account details");
+                accountDetails =
+                    JsonConvert.DeserializeObject<AccountDetails>(await File.ReadAllTextAsync(accountDetailsFile))!;
+                logger.LogInformation("Existing account hast KID {0}", accountDetails.Kid);
             }
             else
             {
-                logger.LogInformation("Refreshing service directory");
-                serviceDirectory = await acme.GetDirectoryAsync();
-                acme.Directory = serviceDirectory;
-
-                shallSave = true;
+                accountDetails = null;
             }
 
-            var result = new LocalAccountDetails(serviceDirectoryFile, serviceDirectory, logger);
-
-            if (shallSave)
-            {
-                await result.SaveAsync();
-            }
-
-            return result;
+            return new LocalAccountDetails(accountDetailsFile, accountDetails, logger);
         }
     }
 }

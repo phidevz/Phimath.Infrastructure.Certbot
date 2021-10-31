@@ -8,6 +8,7 @@
 
     <ItemGroup>
       <PackageReference Include="ACMESharpCore" Version="2.2.0.148" />
+      <PackageReference Include="ACMESharpCore.Crypto" Version="2.2.0.148" />
       <PackageReference Include="Microsoft.Extensions.Configuration" Version="5.0.0" />
       <PackageReference Include="Microsoft.Extensions.Configuration.CommandLine" Version="5.0.0" />
       <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="5.0.0" />

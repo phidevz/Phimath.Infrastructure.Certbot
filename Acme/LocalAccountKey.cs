@@ -4,6 +4,7 @@
 
 using System.IO;
 using System.Threading.Tasks;
+using ACMESharp.Crypto.JOSE;
 using ACMESharp.Protocol;
 using ACMESharp.Protocol.Resources;
 using Microsoft.Extensions.Logging;
@@ -24,6 +25,8 @@ namespace Phimath.Infrastructure.Certbot.Acme
             _serviceDirectory = serviceDirectory;
             _logger = logger;
         }
+        
+        public IJwsTool AccountSigner { get; private set; }
 
         public async Task SaveAsync()
         {
@@ -31,16 +34,16 @@ namespace Phimath.Infrastructure.Certbot.Acme
         }
 
         public static async Task<LocalAccountKey> LoadOrCreateAsync(string stateDirectory,
-            bool refreshServiceDirectory, ILoggerFactory lf, AcmeProtocolClient acme)
+           ILoggerFactory lf, AcmeProtocolClient acme)
         {
             var logger = lf.CreateLogger<LocalAccountKey>();
 
-            var serviceDirectoryFile = Path.Join(stateDirectory, "00-ServiceDirectory.json");
+            var serviceDirectoryFile = Path.Join(stateDirectory, "15-AccountKey.json");
 
             bool shallSave = false;
 
-            ServiceDirectory serviceDirectory;
-            if (File.Exists(serviceDirectoryFile) && !refreshServiceDirectory)
+            
+            if (File.Exists(serviceDirectoryFile) )
             {
                 logger.LogInformation("Loading existing service directory");
                 serviceDirectory =
