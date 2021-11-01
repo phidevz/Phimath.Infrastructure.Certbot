@@ -3,6 +3,8 @@
 // If applicable, license agreements can be found in the top most level of the source repository.
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Phimath.Infrastructure.Certbot
@@ -17,6 +19,11 @@ namespace Phimath.Infrastructure.Certbot
         public static async Task AndThen<TIn>(this Task<TIn> self, Action<TIn> consumer)
         {
             consumer(await self);
+        }
+
+        public static bool IsZoneValid(string zoneName, IEnumerable<string> sans)
+        {
+            return sans.All(san => san.EndsWith(zoneName));
         }
     }
 }

@@ -2,11 +2,12 @@
 // All rights reserved if not stated otherwise or licensed under one or more agreements.
 // If applicable, license agreements can be found in the top most level of the source repository.
 
+using ACMESharp.Protocol;
+
 namespace Phimath.Infrastructure.Certbot.Acme
 {
-    public class AccountKey
+    public class Order
     {
-        public string Algorithm { get; set; }
-        public string Export { get; set; }
+        public OrderDetails Details { get; set; }
     }
 }

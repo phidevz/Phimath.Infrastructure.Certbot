@@ -50,10 +50,11 @@ namespace Phimath.Infrastructure.Certbot.Acme
             {
                 logger.LogInformation("Refreshing service directory");
                 serviceDirectory = await acme.GetDirectoryAsync();
-                acme.Directory = serviceDirectory;
 
                 shallSave = true;
             }
+
+            acme.Directory = serviceDirectory;
 
             var result = new LocalServiceDirectory(serviceDirectoryFile, serviceDirectory, logger);
 

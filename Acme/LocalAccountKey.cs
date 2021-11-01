@@ -2,11 +2,12 @@
 // All rights reserved if not stated otherwise or licensed under one or more agreements.
 // If applicable, license agreements can be found in the top most level of the source repository.
 
+using System;
 using System.IO;
 using System.Threading.Tasks;
+using ACMESharp.Crypto;
 using ACMESharp.Crypto.JOSE;
-using ACMESharp.Protocol;
-using ACMESharp.Protocol.Resources;
+using ACMESharp.Crypto.JOSE.Impl;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 
@@ -15,57 +16,82 @@ namespace Phimath.Infrastructure.Certbot.Acme
     public class LocalAccountKey
     {
         private readonly string _serviceDirectoryFile;
-        private readonly ServiceDirectory _serviceDirectory;
+        private AccountKey? _accountKey;
         private readonly ILogger<LocalAccountKey> _logger;
 
-        private LocalAccountKey(string serviceDirectoryFile, ServiceDirectory serviceDirectory,
+        public bool IsUninitialized => _accountKey == null;
+
+        private LocalAccountKey(string serviceDirectoryFile, AccountKey? accountKey, IJwsTool? signer,
             ILogger<LocalAccountKey> logger)
         {
+            Signer = signer;
             _serviceDirectoryFile = serviceDirectoryFile;
-            _serviceDirectory = serviceDirectory;
+            _accountKey = accountKey;
             _logger = logger;
         }
-        
-        public IJwsTool AccountSigner { get; private set; }
+
+        public IJwsTool? Signer { get; private set; }
 
         public async Task SaveAsync()
         {
-            await File.WriteAllTextAsync(_serviceDirectoryFile, JsonConvert.SerializeObject(_serviceDirectory));
+            await File.WriteAllTextAsync(_serviceDirectoryFile, JsonConvert.SerializeObject(_accountKey));
         }
 
-        public static async Task<LocalAccountKey> LoadOrCreateAsync(string stateDirectory,
-           ILoggerFactory lf, AcmeProtocolClient acme)
+        public static async Task<LocalAccountKey> LoadAsync(string stateDirectory, ILoggerFactory lf)
         {
             var logger = lf.CreateLogger<LocalAccountKey>();
 
-            var serviceDirectoryFile = Path.Join(stateDirectory, "15-AccountKey.json");
+            var accountKeyFile = Path.Join(stateDirectory, "15-AccountKey.json");
 
-            bool shallSave = false;
+            AccountKey? accountKey;
+            IJwsTool? signer;
 
-            
-            if (File.Exists(serviceDirectoryFile) )
+            if (File.Exists(accountKeyFile))
             {
                 logger.LogInformation("Loading existing service directory");
-                serviceDirectory =
-                    JsonConvert.DeserializeObject<ServiceDirectory>(await File.ReadAllTextAsync(serviceDirectoryFile))!;
+                accountKey =
+                    JsonConvert.DeserializeObject<AccountKey>(await File.ReadAllTextAsync(accountKeyFile))!;
+
+                if (accountKey.Algorithm.StartsWith("ES"))
+                {
+                    var esTool = new ESJwsTool();
+                    esTool.HashSize = int.Parse(accountKey.Algorithm[2..]);
+                    signer = esTool;
+                }
+                else if (accountKey.Algorithm.StartsWith("RS"))
+                {
+                    var rsTool = new RSJwsTool();
+                    rsTool.HashSize = int.Parse(accountKey.Algorithm[2..]);
+                    signer = rsTool;
+                }
+                else
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(accountKey.Algorithm),
+                        accountKey.Algorithm,
+                        "Unknown algorithm type");
+                }
+
+                signer.Init();
+                signer.Import(accountKey.Export);
             }
             else
             {
-                logger.LogInformation("Refreshing service directory");
-                serviceDirectory = await acme.GetDirectoryAsync();
-                acme.Directory = serviceDirectory;
-
-                shallSave = true;
+                accountKey = null;
+                signer = null;
             }
 
-            var result = new LocalAccountKey(serviceDirectoryFile, serviceDirectory, logger);
+            return new LocalAccountKey(accountKeyFile, accountKey, signer, logger);
+        }
 
-            if (shallSave)
+        public void SetFromSigner(IJwsTool acmeSigner)
+        {
+            Signer = acmeSigner;
+            _accountKey = new AccountKey
             {
-                await result.SaveAsync();
-            }
-
-            return result;
+                Algorithm = acmeSigner.JwsAlg,
+                Export = acmeSigner.Export()
+            };
         }
     }
 }

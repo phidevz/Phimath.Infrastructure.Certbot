@@ -2,8 +2,11 @@
 // All rights reserved if not stated otherwise or licensed under one or more agreements.
 // If applicable, license agreements can be found in the top most level of the source repository.
 
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
+using ACMESharp.Crypto.JOSE;
 using ACMESharp.Protocol;
 using ACMESharp.Protocol.Resources;
 using Microsoft.Extensions.Logging;
@@ -14,7 +17,11 @@ namespace Phimath.Infrastructure.Certbot.Acme
     public class LocalAccountDetails
     {
         private readonly string _accountDetailsFile;
-        private readonly AccountDetails? _accountDetails;
+
+        public AccountDetails? AccountDetails { get; private set; }
+
+        public bool IsUninitialized => AccountDetails == null;
+
         private readonly ILogger<LocalAccountDetails> _logger;
 
         private LocalAccountDetails(string accountDetailsFile,
@@ -22,16 +29,16 @@ namespace Phimath.Infrastructure.Certbot.Acme
             ILogger<LocalAccountDetails> logger)
         {
             _accountDetailsFile = accountDetailsFile;
-            _accountDetails = accountDetails;
+            AccountDetails = accountDetails;
             _logger = logger;
         }
 
         public async Task SaveAsync()
         {
-            await File.WriteAllTextAsync(_accountDetailsFile, JsonConvert.SerializeObject(_accountDetails));
+            await File.WriteAllTextAsync(_accountDetailsFile, JsonConvert.SerializeObject(AccountDetails));
         }
 
-        public static async Task<LocalAccountDetails> LoadOrCreateAsync(string stateDirectory,
+        public static async Task<LocalAccountDetails> LoadAsync(string stateDirectory,
             ILoggerFactory lf)
         {
             var logger = lf.CreateLogger<LocalAccountDetails>();
@@ -52,6 +59,15 @@ namespace Phimath.Infrastructure.Certbot.Acme
             }
 
             return new LocalAccountDetails(accountDetailsFile, accountDetails, logger);
+        }
+
+        public async Task<IJwsTool> CreateNewAccountAsync(IReadOnlyList<string> accountEmails, AcmeProtocolClient acme)
+        {
+            AccountDetails = await acme.CreateAccountAsync(
+                accountEmails.Select(email => email.StartsWith("mailto:") ? email : $"mailto:{email}"),
+                true);
+            acme.Account = AccountDetails;
+            return acme.Signer;
         }
     }
 }
