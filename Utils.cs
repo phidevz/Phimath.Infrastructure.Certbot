@@ -4,8 +4,10 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using PKISharp.SimplePKI;
 
 namespace Phimath.Infrastructure.Certbot
 {
@@ -24,6 +26,13 @@ namespace Phimath.Infrastructure.Certbot
         public static bool IsZoneValid(string zoneName, IEnumerable<string> sans)
         {
             return sans.All(san => san.EndsWith(zoneName));
+        }
+
+        public static string ToBase64(this PkiKeyPair keyPair)
+        {
+            using var stream = new MemoryStream();
+            keyPair.Save(stream);
+            return Convert.ToBase64String(stream.ToArray());
         }
     }
 }

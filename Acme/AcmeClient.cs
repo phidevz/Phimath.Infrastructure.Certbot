@@ -22,6 +22,7 @@ namespace Phimath.Infrastructure.Certbot.Acme
         public static class Status
         {
             public const string Valid = "valid";
+            public const string Ready = "ready";
             public const string Invalid = "invalid";
             public const string Pending = "pending";
         }
@@ -51,9 +52,9 @@ namespace Phimath.Infrastructure.Certbot.Acme
         public IJwsTool? Signer => _accountKey.Signer;
         public AcmeProtocolClient Acme { get; }
 
-        public async Task<OrderDetails> CreateOrderAsync(string zoneName, IReadOnlyList<string> additionalSANs)
+        public async Task<OrderDetails> CreateOrderAsync(string zoneName, IEnumerable<string> allSANs)
         {
-            var order = await Acme.CreateOrderAsync(additionalSANs.Prepend(zoneName).Distinct());
+            var order = await Acme.CreateOrderAsync(allSANs);
             if (order.Payload.Status == Status.Invalid)
             {
                 throw new Exception($"Order {order.OrderUrl} is already marked as invalid after creation");

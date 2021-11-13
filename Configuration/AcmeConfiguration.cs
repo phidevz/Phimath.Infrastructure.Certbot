@@ -12,5 +12,9 @@ namespace Phimath.Infrastructure.Certbot.Configuration
         public string StateDirectory { get; set; }
 
         public string[] AccountEmails { get; set; }
+        
+        public KeyAlgorithm? KeyAlgorithm { get; set; }
+        
+        public int? KeySize { get; set; }
     }
 }

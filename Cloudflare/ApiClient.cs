@@ -8,6 +8,7 @@ using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
@@ -105,6 +106,25 @@ namespace Phimath.Infrastructure.Certbot.Cloudflare
             return await ExecuteAsync<List<Zone>>(request, "zones");
         }
 
+        public async Task<DnsRecord> CreateDnsRecord(IZoneNameAndId zoneNameAndId,
+            string name,
+            DnsRecordTypes dnsRecordType,
+            string content,
+            int ttl = 1)
+        {
+            var body = new CreateZoneRequest
+            {
+                Content = content,
+                Name = name,
+                Ttl = ttl,
+                Type = dnsRecordType.ToString()
+            };
+            var request = new RestRequest(Method.POST)
+                .AddJsonBody(body);
+
+            return await ExecuteAsync<DnsRecord>(request, $"zones/{zoneNameAndId.Id}/dns_records");
+        }
+
         public async Task<IReadOnlyList<DnsRecord>> GetDnsRecords(IZoneNameAndId zoneNameAndId,
             string? name = null,
             DnsRecordTypes dnsRecordTypes = DnsRecordTypes.ALL,
@@ -117,7 +137,7 @@ namespace Phimath.Infrastructure.Certbot.Cloudflare
 
             if (!string.IsNullOrWhiteSpace(name))
             {
-                request.AddParameter(CommonParameters.Name, $"{name}.{zoneNameAndId.Name}");
+                request.AddParameter(CommonParameters.Name, name);
             }
 
             if (dnsRecordTypes != DnsRecordTypes.ALL)
@@ -132,6 +152,21 @@ namespace Phimath.Infrastructure.Certbot.Cloudflare
         {
             var zones = await GetZones(name);
             return zones.Count > 0 ? zones[0] : null;
+        }
+
+        public async Task DeleteDnsRecords(string zoneId, IEnumerable<string> recordIds)
+        {
+            foreach (string recordId in recordIds)
+            {
+                await DeleteDnsRecord(zoneId, recordId);
+            }
+        }
+
+        public async Task<HasId> DeleteDnsRecord(string zoneId, string recordId)
+        {
+            var request = new RestRequest(Method.DELETE);
+
+            return await ExecuteAsync<HasId>(request, $"zones/{zoneId}/dns_records/{recordId}");
         }
     }
 }
