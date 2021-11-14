@@ -4,22 +4,20 @@ using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 using ACMESharp.Authorizations;
-using ACMESharp.Protocol;
 using ACMESharp.Protocol.Resources;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json.Serialization;
-using OLT.CloudFlare;
 using Phimath.Infrastructure.Certbot;
 using Phimath.Infrastructure.Certbot.Acme;
 using Phimath.Infrastructure.Certbot.Cloudflare;
-using Phimath.Infrastructure.Certbot.Cloudflare.Dtos;
 using Phimath.Infrastructure.Certbot.Configuration;
 using PKISharp.SimplePKI;
+
+static bool IsDnsChallenge(Challenge challenge)
+    => challenge.Type == Dns01ChallengeValidationDetails.Dns01ChallengeType;
 
 var lf = LoggerFactory.Create(logging => logging.AddConsole().AddFilter(level => level != LogLevel.Trace));
 var appLogger = lf.CreateLogger("AppLogger");
@@ -103,7 +101,7 @@ foreach (var (zoneName, zoneConfiguration) in certbotConfiguration.Zones)
 
                 foreach (var challenge in authorization.Challenges)
                 {
-                    if (challenge.Type != Dns01ChallengeValidationDetails.Dns01ChallengeType)
+                    if (!IsDnsChallenge(challenge))
                     {
                         appLogger.LogDebug("Skipping non-DNS challenge of type {0}", challenge.Type);
                         continue;
@@ -171,9 +169,10 @@ foreach (var (zoneName, zoneConfiguration) in certbotConfiguration.Zones)
                                 dnsChallenge.DnsRecordName,
                                 challengeRecordType,
                                 content: dnsChallenge.DnsRecordValue,
-                                3600);
+                                120);
 
-                            appLogger.LogInformation("Created DNS record with ID {0}", createdRecord.Id);
+                            appLogger.LogInformation("Created DNS record with ID {0}, delaying 15 seconds before further processing", createdRecord.Id);
+                            await Task.Delay(TimeSpan.FromSeconds(15));
                         }
 
                         dnsRecordsInCurrentOrder.Add(dnsChallenge.DnsRecordName);
@@ -205,10 +204,25 @@ foreach (var (zoneName, zoneConfiguration) in certbotConfiguration.Zones)
                 authorizationResults.Add(updatedAuthorization);
             }
 
-            if (authorizationResults.Any(authorization => authorization.Status != AcmeClient.Status.Valid))
+            var errors = authorizationResults
+                .Where(authorization => authorization.Status != AcmeClient.Status.Valid)
+                .Select(authorization => string.Format(
+                    "{0}:{1} ERROR {2}",
+                    authorization.Identifier.Type,
+                    authorization.Identifier.Value,
+                    string.Join(", ", authorization.Challenges.Where(IsDnsChallenge)
+                        .Select(challenge => challenge.Error.ToString()))))
+                .ToList();
+
+            if (errors.Any())
             {
-                appLogger.LogInformation("Some authorizations were invalid (see log above), aborting");
-                return 4;
+                appLogger.LogInformation("Some authorizations were invalid (see below), aborting processing for this zone");
+                foreach (var error in errors)
+                {
+                    // ReSharper disable once TemplateIsNotCompileTimeConstantProblem
+                    appLogger.LogError(error);
+                }
+                goto endZoneLoop;
             }
         }
 
@@ -217,7 +231,7 @@ foreach (var (zoneName, zoneConfiguration) in certbotConfiguration.Zones)
 
         appLogger.LogInformation("Order is {0}", order.Payload.Status);
 
-        var orderFolderName = new Uri(order.OrderUrl).LocalPath.Replace("/acme/order/", "").Replace("/", "_");
+        var orderFolderName = zoneName + "-" + new Uri(order.OrderUrl).LocalPath.Replace("/acme/order/", "").Replace("/", "-");
         var orderFolder = Path.Join(certbotConfiguration.Acme.StateDirectory, orderFolderName);
         if (!Directory.Exists(orderFolder))
         {
@@ -253,7 +267,6 @@ foreach (var (zoneName, zoneConfiguration) in certbotConfiguration.Zones)
             var binaryCsr = csr.ExportSigningRequest(PkiEncodingFormat.Der);
 
             order = await acmeClient.Acme.FinalizeOrderAsync(order.Payload.Finalize, binaryCsr);
-            var x = 0;
         }
 
         if (order.Payload.Status == AcmeClient.Status.Valid)
@@ -276,10 +289,26 @@ foreach (var (zoneName, zoneConfiguration) in certbotConfiguration.Zones)
                 await stream.DisposeAsync();
             }
 
+            var privateKeyFile = Path.Join(orderFolder, $"{zoneName}.key");
+            var publicKeyFile = Path.Join(orderFolder, $"{zoneName}.pubkey");
+            var certFile = Path.Join(orderFolder, $"{zoneName}.crt");
+            var pfxFile = Path.Join(orderFolder, $"{zoneName}.pfx");
+
+            appLogger.LogInformation("Exporting key material");
+            await File.WriteAllBytesAsync(privateKeyFile, keyPair.PrivateKey.Export(PkiEncodingFormat.Pem));
+            await File.WriteAllBytesAsync(publicKeyFile, keyPair.PublicKey.Export(PkiEncodingFormat.Pem));
+
+            appLogger.LogInformation("Getting certificate and storing locally");
             var certificateBytes = await acmeClient.Acme.GetOrderCertificateAsync(order);
+            await File.WriteAllBytesAsync(certFile, certificateBytes);
+
+            appLogger.LogInformation("Exporting PFX");
+            var pkiCert = PkiCertificate.From(new X509Certificate2(certificateBytes));
+            await File.WriteAllBytesAsync(pfxFile, pkiCert.Export(PkiArchiveFormat.Pkcs12, keyPair.PrivateKey));
         }
 
-        var _ = 0;
+        endZoneLoop:
+        appLogger.LogInformation("Finished processing zone {0}", zoneName);
     }
     catch (Exception ex)
     {
