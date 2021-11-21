@@ -42,9 +42,5 @@ namespace Phimath.Infrastructure.Certbot.Cloudflare.Dtos
         public string Type { get; set; }
 
         public string[] NameServers { get; set; }
-
-        public Zone()
-        {
-        }
     }
 }

@@ -8,7 +8,8 @@ namespace Phimath.Infrastructure.Certbot.Configuration.Credentials.Zones
 {
     public class Zone
     {
-        // ReSharper disable once InconsistentNaming
-        public List<string> AdditionalSANs { get; set; } = new();
+        public List<string> SANs { get; set; } = new();
+
+        public bool IncludeZoneNameAsSAN { get; set; } = true;
     }
 }

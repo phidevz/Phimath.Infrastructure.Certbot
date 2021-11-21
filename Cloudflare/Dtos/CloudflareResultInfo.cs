@@ -4,16 +4,14 @@
 
 namespace Phimath.Infrastructure.Certbot.Cloudflare.Dtos
 {
-    public class ResponseFrame<T> where T : new()
+    public class CloudflareResultInfo
     {
-        public bool? Success { get; set; }
+        public long? Page { get; set; }
 
-        public CloudflareResultInfo ResultInfo { get; set; }
+        public long? PerPage { get; set; }
 
-        public CloudflareError[] Errors { get; set; }
+        public long? Count { get; set; }
 
-        public string[] Messages { get; set; }
-
-        public T Result { get; set; }
+        public long? TotalCount { get; set; }
     }
 }

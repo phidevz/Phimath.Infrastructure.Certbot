@@ -18,6 +18,6 @@ namespace Phimath.Infrastructure.Certbot.Configuration
         public AcmeConfiguration Acme { get; init; }
 
         public bool AreZonesValid =>
-            Zones.All(zone => zone.Value.AdditionalSANs?.TrueForAll(san => san.EndsWith(zone.Key)) ?? true);
+            Zones.All(zone => zone.Value.SANs?.TrueForAll(san => san.EndsWith(zone.Key)) ?? true);
     }
 }

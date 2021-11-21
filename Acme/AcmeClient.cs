@@ -12,6 +12,7 @@ using ACMESharp.Crypto.JOSE;
 using ACMESharp.Protocol;
 using ACMESharp.Protocol.Resources;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json.Serialization;
 using Phimath.Infrastructure.Certbot.Cloudflare.Dtos;
 using Phimath.Infrastructure.Certbot.Configuration;
 
@@ -120,6 +121,18 @@ namespace Phimath.Infrastructure.Certbot.Acme
         public void Dispose()
         {
             Acme.Dispose();
+        }
+
+        public IPersistedOrder PersistOrder(string zoneName, string normalizedOrderUrl)
+        {
+            var orderFolderName = $"{zoneName}-{normalizedOrderUrl}";
+            var orderFolder = Path.Join(_configuration.StateDirectory, orderFolderName);
+            if (!Directory.Exists(orderFolder))
+            {
+                Directory.CreateDirectory(orderFolder);
+            }
+
+            return new PersistedOrder(orderFolder, zoneName);
         }
     }
 }
