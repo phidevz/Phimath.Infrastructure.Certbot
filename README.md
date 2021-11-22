@@ -1,5 +1,5 @@
 # Phimath.Infrastructure.Certbot
-Simple automation tool to optain DNS-validated Let's Encrypt certificates.
+Simple automation tool to obtain DNS-validated Let's Encrypt certificates.
 
 ## Features
 - Supports both Let's Encrypt Staging and Production, so you can test your settings without getting rate limited
