@@ -9,6 +9,11 @@ namespace Phimath.Infrastructure.Certbot.Acme
 {
     public interface IPersistedOrder
     {
+        string CertFile { get; }
+        string PfxFile { get; }
+        string PrivateKeyFile { get; }
+        string PublicKeyFile { get; }
+
         Task SetKeyPair(PkiKeyPair keyPair);
         Task EnsureKeysLoadedAsync();
         Task ExportKeysAsync();

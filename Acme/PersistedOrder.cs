@@ -14,20 +14,20 @@ namespace Phimath.Infrastructure.Certbot.Acme
     public class PersistedOrder : IPersistedOrder
     {
         private readonly string _keyFile;
-        private readonly string _certFile;
-        private readonly string _pfxFile;
-        private readonly string _privateKeyFile;
-        private readonly string _publicKeyFile;
+        public string CertFile { get; }
+        public string PfxFile { get; }
+        public string PrivateKeyFile { get; }
+        public string PublicKeyFile { get; }
 
         private Option<PkiKeyPair> _keyPair = Option<PkiKeyPair>.None;
 
         public PersistedOrder(string orderFolder, string zoneName)
         {
             _keyFile = Path.Join(orderFolder, "keys.dat");
-            _certFile = Path.Join(orderFolder, $"{zoneName}.crt");
-            _pfxFile = Path.Join(orderFolder, $"{zoneName}.pfx");
-            _privateKeyFile = Path.Join(orderFolder, $"{zoneName}.key");
-            _publicKeyFile = Path.Join(orderFolder, $"{zoneName}.pubkey");
+            CertFile = Path.Join(orderFolder, $"{zoneName}.crt");
+            PfxFile = Path.Join(orderFolder, $"{zoneName}.pfx");
+            PrivateKeyFile = Path.Join(orderFolder, $"{zoneName}.key");
+            PublicKeyFile = Path.Join(orderFolder, $"{zoneName}.pubkey");
         }
 
         public async Task SetKeyPair(PkiKeyPair keyPair)
@@ -43,19 +43,19 @@ namespace Phimath.Infrastructure.Certbot.Acme
         public Task ExportKeysAsync() =>
             _keyPair.Map(async keyPair =>
                 {
-                    await File.WriteAllBytesAsync(_privateKeyFile, keyPair.PrivateKey.Export(PkiEncodingFormat.Pem));
-                    await File.WriteAllBytesAsync(_publicKeyFile, keyPair.PublicKey.Export(PkiEncodingFormat.Pem));
+                    await File.WriteAllBytesAsync(PrivateKeyFile, keyPair.PrivateKey.Export(PkiEncodingFormat.Pem));
+                    await File.WriteAllBytesAsync(PublicKeyFile, keyPair.PublicKey.Export(PkiEncodingFormat.Pem));
                 })
                 .IfNone(Task.FromException(new Exception("Key pair not loaded!")));
 
         public async Task ExportCertificateAsync(byte[] certificateBytes)
         {
-            await File.WriteAllBytesAsync(_certFile, certificateBytes);
+            await File.WriteAllBytesAsync(CertFile, certificateBytes);
 
             var pkiCert = PkiCertificate.From(new X509Certificate2(certificateBytes));
             await _keyPair.Map(async keyPair =>
                 {
-                    await File.WriteAllBytesAsync(_pfxFile,
+                    await File.WriteAllBytesAsync(PfxFile,
                         pkiCert.Export(PkiArchiveFormat.Pkcs12, keyPair.PrivateKey));
                 })
                 .IfNone(Task.FromException(new Exception("Key pair not loaded!")));

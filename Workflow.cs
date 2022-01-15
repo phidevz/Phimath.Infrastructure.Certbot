@@ -15,6 +15,7 @@ using ACMESharp.Protocol.Resources;
 using DnsClient;
 using LanguageExt;
 using LanguageExt.Common;
+using LanguageExt.UnsafeValueAccess;
 using Microsoft.Extensions.Logging;
 using Phimath.Infrastructure.Certbot.Acme;
 using Phimath.Infrastructure.Certbot.Cloudflare;
@@ -37,6 +38,7 @@ namespace Phimath.Infrastructure.Certbot
         private ApiClient _apiClient;
         private KeyAlgorithm _keyAlgorithm;
         private Seq<Validation<Error, KeyValuePair<string, Zone>>> _zones;
+        private Option<string> _linkInto = Option<string>.None;
 
         internal static Workflow Configure(CertbotConfiguration configuration, ILoggerFactory loggerFactory)
         {
@@ -53,7 +55,8 @@ namespace Phimath.Infrastructure.Certbot
         public Validation<Error, Workflow> ValidateConfiguration()
         {
             return ValidateKeyAlgorithm()
-                   | ValidateZones();
+                   | ValidateZones()
+                   | ValidateLinkTo();
         }
 
         private Validation<Error, Workflow> ValidateZones()
@@ -61,6 +64,38 @@ namespace Phimath.Infrastructure.Certbot
             _zones = _configuration.Zones.Map(Utils.ValidateZone).ToSeq();
             // TODO
             return this;
+        }
+
+        private Validation<Error, Workflow> ValidateLinkTo()
+        {
+            var configValue = _configuration.Acme.LinkInto;
+            if (string.IsNullOrWhiteSpace(configValue))
+            {
+                return this;
+            }
+
+            try
+            {
+                var normalizedPath = Path.GetFullPath(configValue);
+
+                if (File.Exists(normalizedPath))
+                {
+                    return Error.New($"The target link {normalizedPath} is a file, but should be a folder");
+                }
+
+                if (!Directory.Exists(normalizedPath))
+                {
+                    Directory.CreateDirectory(normalizedPath);
+                }
+
+                _linkInto = normalizedPath;
+
+                return this;
+            }
+            catch (Exception ex)
+            {
+                return Error.New(ex);
+            }
         }
 
         private Validation<Error, Workflow> ValidateKeyAlgorithm()
@@ -174,9 +209,13 @@ namespace Phimath.Infrastructure.Certbot
                         authorization.Challenges.Length,
                         authorization.Status);
 
+                    var recordIds = Seq<string>.Empty;
+
                     foreach (var challenge in authorization.Challenges)
                     {
-                        await ProcessChallenge(zoneName, zone, challenge, authorization, dnsRecordsInCurrentOrder);
+                        var recordId = await ProcessChallenge(zoneName, zone, challenge, authorization,
+                            dnsRecordsInCurrentOrder);
+                        recordIds = recordId.Fold(recordIds, (list, item) => list.Add(item));
                     }
 
                     var updatedAuthorization = await _acmeClient.Acme.GetAuthorizationDetailsAsync(authorizationUrl);
@@ -198,6 +237,15 @@ namespace Phimath.Infrastructure.Certbot
                     _logger.LogInformation("Authorization is final state {AuthorizationStatus}",
                         updatedAuthorization.Status);
                     authorizationResults.Add(updatedAuthorization);
+
+                    _logger.LogInformation("Cleaning up authorization");
+
+                    foreach (var recordId in recordIds)
+                    {
+                        await _apiClient.DeleteDnsRecord(zone.Id, recordId);
+                    }
+
+                    _logger.LogInformation("Cleanup done");
                 }
 
                 var errors = authorizationResults
@@ -207,7 +255,7 @@ namespace Phimath.Infrastructure.Certbot
 
                 if (errors.Any())
                 {
-                    _logger.LogInformation(
+                    _logger.LogCritical(
                         "Some authorizations were invalid (see below), aborting processing for this zone");
                     // ReSharper disable once TemplateIsNotCompileTimeConstantProblem
                     errors.Iter(error => _logger.LogError(error));
@@ -265,6 +313,17 @@ namespace Phimath.Infrastructure.Certbot
                 _logger.LogInformation("Getting certificate and storing locally");
                 var certificateBytes = await _acmeClient.Acme.GetOrderCertificateAsync(order);
                 await persistedOrder.ExportCertificateAsync(certificateBytes);
+
+                _linkInto.Iter(folder =>
+                {
+                    _logger.LogInformation("Copying certificate information to directory '{TargetDirectory}'", folder);
+
+                    var targetKeyFile = Path.Join(folder, Path.GetFileName(persistedOrder.PrivateKeyFile));
+                    File.Copy(persistedOrder.PrivateKeyFile, targetKeyFile, true);
+
+                    var targetCertFile = Path.Join(folder, Path.GetFileName(persistedOrder.CertFile));
+                    File.Copy(persistedOrder.CertFile, targetCertFile, true);
+                });
             }
         }
 
@@ -273,13 +332,13 @@ namespace Phimath.Infrastructure.Certbot
             return new Uri(order.OrderUrl).LocalPath.Replace("/acme/order/", "").Replace("/", "-");
         }
 
-        private async Task ProcessChallenge(string zoneName, IZoneNameAndId zone, Challenge challenge,
+        private async Task<Option<string>> ProcessChallenge(string zoneName, IZoneNameAndId zone, Challenge challenge,
             Authorization authorization, ISet<string> dnsRecordsInCurrentOrder)
         {
             if (!challenge.IsDnsChallenge())
             {
                 _logger.LogDebug("Skipping non-DNS challenge of type {ChallengeType}", challenge.Type);
-                return;
+                return Option<string>.None;
             }
 
             var dnsChallenge = AuthorizationDecoder.ResolveChallengeForDns01(
@@ -287,10 +346,10 @@ namespace Phimath.Infrastructure.Certbot
                 challenge,
                 _acmeClient.Signer);
 
-            await HandleDnsChallenge(zoneName, zone, challenge, dnsRecordsInCurrentOrder, dnsChallenge);
+            return await HandleDnsChallenge(zoneName, zone, challenge, dnsRecordsInCurrentOrder, dnsChallenge);
         }
 
-        private async Task HandleDnsChallenge(string zoneName, IZoneNameAndId zone, Challenge challenge,
+        private async Task<Option<string>> HandleDnsChallenge(string zoneName, IZoneNameAndId zone, Challenge challenge,
             ISet<string> dnsRecordsInCurrentOrder, Dns01ChallengeValidationDetails dnsChallenge)
         {
             _logger.LogInformation(
@@ -307,18 +366,24 @@ namespace Phimath.Infrastructure.Certbot
                     AcmeClient.Status.Pending);
 
                 dnsRecordsInCurrentOrder.Add(dnsChallenge.DnsRecordName);
+
+                return Option<string>.None;
             }
-            else
-            {
-                await HandlePendingChallenge(zoneName, zone, challenge, dnsRecordsInCurrentOrder, dnsChallenge);
-            }
+
+            return await HandlePendingChallenge(zoneName, zone, challenge, dnsRecordsInCurrentOrder, dnsChallenge);
         }
 
-        private async Task HandlePendingChallenge(string zoneName, IZoneNameAndId zone, Challenge challenge,
-            ISet<string> dnsRecordsInCurrentOrder, Dns01ChallengeValidationDetails dnsChallenge)
+        private async Task<string> HandlePendingChallenge(
+            string zoneName,
+            IZoneNameAndId zone,
+            Challenge challenge,
+            ISet<string> dnsRecordsInCurrentOrder,
+            Dns01ChallengeValidationDetails dnsChallenge)
         {
-            if (!Enum.TryParse(dnsChallenge.DnsRecordType, true,
-                out DnsRecordTypes challengeRecordType))
+            if (!Enum.TryParse(
+                    dnsChallenge.DnsRecordType,
+                    true,
+                    out DnsRecordTypes challengeRecordType))
             {
                 _logger.LogWarning(
                     "Challenge requested unsupported DNS record type {RecordType}, falling back to TXT",
@@ -337,9 +402,14 @@ namespace Phimath.Infrastructure.Certbot
                 "Found {ExistingRecords} existing record(s) for that challenge type and name",
                 existingRecords.Count);
 
-            if (existingRecords.Any(dnsRecord => dnsRecord.Content == dnsChallenge.DnsRecordValue))
+            var matchingExisting = existingRecords
+                .Where(dnsRecord => dnsRecord.Content == dnsChallenge.DnsRecordValue)
+                .HeadOrNone();
+            string recordId;
+            if (matchingExisting.IsSome)
             {
-                _logger.LogInformation("Already found a record that matches our challenge, ");
+                _logger.LogInformation("Already found a record that matches our challenge");
+                recordId = matchingExisting.ValueUnsafe().Id;
             }
             else
             {
@@ -361,6 +431,7 @@ namespace Phimath.Infrastructure.Certbot
                     120);
 
                 _logger.LogInformation("Created DNS record with ID {RecordId}", createdRecord.Id);
+                recordId = createdRecord.Id;
 
                 await ChallengeSuccessOrTimeout(dnsChallenge);
             }
@@ -373,6 +444,8 @@ namespace Phimath.Infrastructure.Certbot
 
             _logger.LogInformation("Challenge is now in state {ChallengeStatus}",
                 updatedChallenge.Status);
+
+            return recordId;
         }
 
         private async Task ChallengeSuccessOrTimeout(Dns01ChallengeValidationDetails dnsChallenge)

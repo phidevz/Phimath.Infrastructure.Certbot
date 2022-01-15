@@ -17,7 +17,8 @@ try
     IDictionary<string, string> switchMappings = new Dictionary<string, string>
     {
         { "-staging", "Certbot:Acme:UseStaging" },
-        { "-state", "Certbot:Acme:StateDirectory" }
+        { "-state", "Certbot:Acme:StateDirectory" },
+        { "--link-into", "Certbot:Acme:LinkInto" }
     };
 
     configuration = new ConfigurationBuilder()

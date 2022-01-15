@@ -16,5 +16,7 @@ namespace Phimath.Infrastructure.Certbot.Configuration
         public KeyAlgorithm? KeyAlgorithm { get; set; }
         
         public int? KeySize { get; set; }
+        
+        public string? LinkInto { get; set; }
     }
 }
